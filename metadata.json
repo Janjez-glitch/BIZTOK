@@ -1,0 +1,6 @@
+{
+  "name": "BizTok - Video-First Shopping Marketplace",
+  "description": "Video-first shopping marketplace with verified business onboarding, algorithmic recommendation feed, and multimodal Gemini AI ad generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
