@@ -38,6 +38,21 @@ import {
   PhysicalGiftDispatchRecord,
   TokGiftItem
 } from './src/lib/tokGifts.ts';
+import {
+  PUDO_HUBS,
+  LOGISTICS_PROVIDERS,
+  MOCK_DRIVERS,
+  calculateLogisticsQuotes,
+  generateHandshakeCredentials,
+  verifySellerPickupHandshake,
+  verifyBuyerDeliveryHandshake,
+  generateLegalWaybill,
+  simulateRiderMovement,
+  ShipmentHandshake,
+  LogisticsTier,
+  DeliveryMethod,
+  PudoLocation,
+} from './src/lib/logisticsAggregator.ts';
 
 dotenv.config();
 
@@ -301,6 +316,94 @@ let giftDispatchQueue: PhysicalGiftDispatchRecord[] = [
     assignedTrackingNumber: 'SNDY-44189-EXP',
     dispatchedAt: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
     createdAt: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
+  }
+];
+
+// Active Shipments Store for Multi-Tier Logistics API & 3-Way Digital Handshake
+let activeShipments: ShipmentHandshake[] = [
+  {
+    shipmentId: 'shp_seed_101',
+    orderId: 'ord_escrow_101',
+    logisticsTier: 'HYPER_LOCAL',
+    deliveryMethod: 'DOORSTEP',
+    selectedProvider: 'prov_bolt_boda',
+    trackingNumber: 'BOD-992144',
+    sellerPickupPin: '4821',
+    buyerDeliveryOtp: '749210',
+    driver: MOCK_DRIVERS[0], // Juma Omondi (KME 489T)
+    handshakeStep: 'PICKUP_VERIFIED_IN_TRANSIT',
+    proofOfCondition: {
+      photoUrl: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=600&q=80',
+      capturedAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+      verifiedByDriverId: 'drv_juma_boda',
+      conditionStatus: 'SEALED_PRISTINE',
+      notes: 'Sealed tamper-evident BizTok packaging verified pristine by rider upon pickup.',
+      gpsCoordinates: { lat: -1.2825, lng: 36.8155 },
+    },
+    pickupVerifiedAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+    originAddress: 'OrbitFlow Labs Studio, Kilimani Road, Nairobi',
+    destinationAddress: 'Nairobi Innovation Hub, Kilimani Road, Nairobi',
+    currentCoordinates: { lat: -1.2842, lng: 36.8180 },
+    targetCoordinates: { lat: -1.2921, lng: 36.8219 },
+    progressPercent: 65,
+    etaRemainingMinutes: 14,
+    waybillNumber: 'WB-2025-BOD-10199',
+    createdAt: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
+  },
+  {
+    shipmentId: 'shp_seed_102',
+    orderId: 'ord_escrow_102',
+    logisticsTier: 'REGIONAL_SHUTTLE',
+    deliveryMethod: 'PUDO_HUB',
+    selectedProvider: 'prov_easycoach_parcel',
+    trackingNumber: 'BUS-882104',
+    sellerPickupPin: '3914',
+    buyerDeliveryOtp: '518492',
+    pudoHub: PUDO_HUBS[0], // TotalEnergies Westlands
+    driver: MOCK_DRIVERS[1], // Faith Wambui (KDH 814X)
+    handshakeStep: 'PICKUP_PIN_PENDING',
+    originAddress: 'Komorebi Clayworks Studio, Workshop 4',
+    destinationAddress: 'TotalEnergies Service Station (Westlands Hub), Waiyaki Way',
+    currentCoordinates: { lat: -1.2662, lng: 36.8041 },
+    targetCoordinates: { lat: -1.2662, lng: 36.8041 },
+    progressPercent: 20,
+    etaRemainingMinutes: 35,
+    waybillNumber: 'WB-2025-BUS-20411',
+    createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+  },
+  {
+    shipmentId: 'shp_seed_103',
+    orderId: 'ord_escrow_103',
+    logisticsTier: 'HYPER_LOCAL',
+    deliveryMethod: 'DOORSTEP',
+    selectedProvider: 'prov_uber_direct',
+    trackingNumber: 'UBR-339182',
+    sellerPickupPin: '7721',
+    buyerDeliveryOtp: '901244',
+    driver: MOCK_DRIVERS[0],
+    handshakeStep: 'DELIVERED_PAYOUT_DISPATCHED',
+    pickupVerifiedAt: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
+    deliveryVerifiedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+    originAddress: 'Atelier Indigo, Workshop 2',
+    destinationAddress: 'Tech Tower, Upper Hill, Nairobi',
+    currentCoordinates: { lat: -1.2980, lng: 36.8320 },
+    targetCoordinates: { lat: -1.2980, lng: 36.8320 },
+    progressPercent: 100,
+    etaRemainingMinutes: 0,
+    waybillNumber: 'WB-2025-UBR-99182',
+    automatedPayout: {
+      orderId: 'ord_escrow_103',
+      merchantPayoutAmount: 175.75,
+      merchantName: 'Atelier Indigo',
+      riderDeliveryFee: 5.50,
+      riderName: 'Juma Omondi',
+      riderMpesaPhone: '+254 722 994 102',
+      riderMpesaReceipt: 'MPESA_B2C_RIDER_994102',
+      platformFee: 9.25,
+      disbursedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+      status: 'DISBURSED_SUCCESS',
+    },
+    createdAt: new Date(Date.now() - 5 * 3600 * 1000).toISOString(),
   }
 ];
 
@@ -688,14 +791,21 @@ app.post('/api/checkout/create-order', (req, res) => {
     paymentMethod,
     paymentReference,
     shippingAddress,
+    deliveryMethod = 'DOORSTEP',
+    logisticsTier = 'HYPER_LOCAL',
+    selectedProvider = 'prov_bolt_boda',
+    pudoId,
+    deliveryFee = 3.80,
   } = req.body;
 
   const orderId = `ord_escrow_${Date.now()}`;
+  const totalWithShipping = Number((Number(amount) || 49.0) + Number(deliveryFee)).toFixed(2);
+
   const newOrder = createEscrowOrder({
     orderId,
     productId: productId || 'prod_sample',
     productTitle: productTitle || 'BizTok Verified Product',
-    amount: Number(amount) || 49.0,
+    amount: Number(totalWithShipping),
     buyerName: buyerName || 'Alex Kim',
     buyerPhone,
     sellerId: sellerId || currentMerchant.merchantId,
@@ -707,10 +817,24 @@ app.post('/api/checkout/create-order', (req, res) => {
 
   escrowOrders.unshift(newOrder);
 
+  // Automatically spawn the 3-Way Digital Handshake Shipment Record!
+  const shipment = generateHandshakeCredentials({
+    orderId,
+    tier: logisticsTier as LogisticsTier,
+    deliveryMethod: deliveryMethod as DeliveryMethod,
+    providerId: selectedProvider,
+    originAddress: `${currentMerchant.businessName} Flagship, Kilimani Studio`,
+    destinationAddress: shippingAddress || '100 Silicon Way, Tech District, Nairobi',
+    pudoId,
+  });
+
+  activeShipments.unshift(shipment);
+
   res.json({
     success: true,
     order: newOrder,
-    message: 'Payment confirmed. Funds are securely locked in BizTok Escrow Vault.',
+    shipment,
+    message: 'Payment confirmed. Funds are securely locked in BizTok Escrow Vault. 3-Way Handshake shipment initialized.',
   });
 });
 
@@ -768,6 +892,203 @@ app.post('/api/escrow/release', (req, res) => {
     success: true,
     order: result.updatedOrder,
     message: result.message,
+  });
+});
+
+/* ========================================================================== */
+/* MULTI-TIER LOGISTICS API INTEGRATED FRAMEWORK                              */
+/* ========================================================================== */
+
+// 1. Get PUDO Local Pickup Points
+app.get('/api/logistics/pudo-hubs', (req, res) => {
+  res.json({
+    hubs: PUDO_HUBS,
+  });
+});
+
+// 2. Get Available Logistics Providers across Tiers
+app.get('/api/logistics/providers', (req, res) => {
+  res.json({
+    providers: LOGISTICS_PROVIDERS,
+  });
+});
+
+// 3. Upfront Dynamic Smart-Pricing Engine
+app.post('/api/logistics/quotes', (req, res) => {
+  const {
+    originAddress = `${currentMerchant.businessName} Flagship, Nairobi`,
+    destinationAddress = 'Nairobi Innovation Hub, Kilimani Road, Nairobi',
+    deliveryMethod = 'DOORSTEP',
+    selectedPudoId,
+    packageWeightKg = 1.2,
+  } = req.body;
+
+  const quotes = calculateLogisticsQuotes({
+    originAddress,
+    destinationAddress,
+    deliveryMethod,
+    selectedPudoId,
+    packageWeightKg,
+  });
+
+  res.json({
+    success: true,
+    originAddress,
+    destinationAddress,
+    deliveryMethod,
+    quotes,
+  });
+});
+
+// 4. List Active Shipments with Handshake Statuses
+app.get('/api/logistics/shipments', (req, res) => {
+  res.json({
+    shipments: activeShipments,
+    totalActive: activeShipments.length,
+    inTransitCount: activeShipments.filter(s => s.handshakeStep === 'PICKUP_VERIFIED_IN_TRANSIT').length,
+    pendingPickupCount: activeShipments.filter(s => s.handshakeStep === 'PICKUP_PIN_PENDING').length,
+    deliveredCount: activeShipments.filter(s => s.handshakeStep === 'DELIVERED_PAYOUT_DISPATCHED').length,
+  });
+});
+
+// 5. Handshake Step 1: Seller Pickup PIN Verification & Condition Photo
+app.post('/api/logistics/handshake/verify-pickup', (req, res) => {
+  const { shipmentId, enteredPin, conditionNotes, photoUrl } = req.body;
+  const idx = activeShipments.findIndex(s => s.shipmentId === shipmentId || s.orderId === shipmentId);
+
+  if (idx === -1) {
+    res.status(404).json({ error: 'Shipment not found' });
+    return;
+  }
+
+  const result = verifySellerPickupHandshake({
+    shipment: activeShipments[idx],
+    enteredPin: String(enteredPin || ''),
+    conditionNotes,
+    photoUrl,
+  });
+
+  if (!result.success) {
+    res.status(400).json({ error: result.message, errorCode: result.errorCode });
+    return;
+  }
+
+  activeShipments[idx] = result.updatedShipment;
+
+  // Sync escrow order status to SHIPPED_TRACKING_GENERATED
+  const orderIdx = escrowOrders.findIndex(o => o.orderId === activeShipments[idx].orderId);
+  if (orderIdx !== -1) {
+    escrowOrders[orderIdx].escrowStatus = 'SHIPPED_TRACKING_GENERATED';
+    escrowOrders[orderIdx].trackingNumber = activeShipments[idx].trackingNumber;
+    escrowOrders[orderIdx].carrier = 'SendyExpress';
+    escrowOrders[orderIdx].shippedAt = new Date().toISOString();
+  }
+
+  res.json({
+    success: true,
+    shipment: result.updatedShipment,
+    message: result.message,
+  });
+});
+
+// 6. Handshake Step 2: Buyer Delivery OTP Verification & Automated Split Payout
+app.post('/api/logistics/handshake/verify-delivery', (req, res) => {
+  const { shipmentId, enteredOtp, deliveryFee } = req.body;
+  const idx = activeShipments.findIndex(s => s.shipmentId === shipmentId || s.orderId === shipmentId);
+
+  if (idx === -1) {
+    res.status(404).json({ error: 'Shipment not found' });
+    return;
+  }
+
+  const escrowOrder = escrowOrders.find(o => o.orderId === activeShipments[idx].orderId);
+
+  const result = verifyBuyerDeliveryHandshake({
+    shipment: activeShipments[idx],
+    enteredOtp: String(enteredOtp || ''),
+    escrowOrder,
+    deliveryFee: Number(deliveryFee) || 4.50,
+  });
+
+  if (!result.success) {
+    res.status(400).json({ error: result.message, errorCode: result.errorCode });
+    return;
+  }
+
+  activeShipments[idx] = result.updatedShipment;
+
+  // Release escrow funds to merchant
+  if (escrowOrder) {
+    const orderIdx = escrowOrders.findIndex(o => o.orderId === escrowOrder.orderId);
+    if (orderIdx !== -1) {
+      escrowOrders[orderIdx].escrowStatus = 'DELIVERED_ESCROW_RELEASED';
+      escrowOrders[orderIdx].deliveredAt = new Date().toISOString();
+      escrowOrders[orderIdx].releasedAt = new Date().toISOString();
+      escrowOrders[orderIdx].escrowHoldAmount = 0;
+    }
+  }
+
+  res.json({
+    success: true,
+    shipment: result.updatedShipment,
+    payoutRecord: result.payoutRecord,
+    message: result.message,
+  });
+});
+
+// 7. Generate & View Legal Digital Waybill with Verified Merchant Permits
+app.get('/api/logistics/waybill/:orderId', (req, res) => {
+  const { orderId } = req.params;
+  const shipment = activeShipments.find(s => s.orderId === orderId || s.shipmentId === orderId) || activeShipments[0];
+  const escrowOrder = escrowOrders.find(o => o.orderId === shipment?.orderId);
+
+  const waybill = generateLegalWaybill({
+    merchant: currentMerchant,
+    shipment: shipment || activeShipments[0],
+    declaredItemTitle: escrowOrder ? escrowOrder.productTitle : 'BizTok Verified Showcase Merchandise',
+    declaredValueUsd: escrowOrder ? escrowOrder.amount : 49.00,
+    packageWeightKg: 1.4,
+  });
+
+  res.json({
+    success: true,
+    waybill,
+  });
+});
+
+// 8. Simulate Rider GPS Step for live map movement
+app.post('/api/logistics/simulate-step', (req, res) => {
+  const { shipmentId } = req.body;
+  const idx = activeShipments.findIndex(s => s.shipmentId === shipmentId || s.orderId === shipmentId);
+
+  if (idx === -1) {
+    res.status(404).json({ error: 'Shipment not found' });
+    return;
+  }
+
+  const shipment = activeShipments[idx];
+  const moved = simulateRiderMovement(shipment.currentCoordinates, shipment.targetCoordinates, 0.25);
+
+  const newProgress = Math.min(95, shipment.progressPercent + 10);
+  const newEta = Math.max(3, shipment.etaRemainingMinutes - 3);
+
+  activeShipments[idx] = {
+    ...shipment,
+    currentCoordinates: { lat: moved.lat, lng: moved.lng },
+    progressPercent: newProgress,
+    etaRemainingMinutes: newEta,
+    driver: {
+      ...shipment.driver,
+      currentLat: moved.lat,
+      currentLng: moved.lng,
+      speedKmh: Math.floor(28 + Math.random() * 20),
+    },
+  };
+
+  res.json({
+    success: true,
+    shipment: activeShipments[idx],
+    heading: moved.headingDegrees,
   });
 });
 

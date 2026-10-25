@@ -38,12 +38,15 @@ import { EscrowDashboardModal } from './components/EscrowDashboardModal';
 import { TokGiftDrawer } from './components/TokGiftDrawer';
 import { BizzyAssistant } from './components/BizzyAssistant';
 import { LiveStreamSuite } from './components/LiveStreamSuite';
+import { LogisticsHubModal } from './components/LogisticsHubModal';
 import {
   RankedFeedItem,
   UserAffinityProfile,
   UserInteractionTelemetry,
   ProductCategory,
-  FeedProduct
+  FeedProduct,
+  updateUserAffinity,
+  rankFeed
 } from './lib/recommendationEngine';
 import { MerchantAccount } from './lib/businessVerification';
 import { TokGiftItem, PhysicalGiftDispatchRecord } from './lib/tokGifts';
@@ -74,6 +77,8 @@ export default function App() {
   const [isTokGiftsOpen, setIsTokGiftsOpen] = useState(false);
   const [isBizzyOpen, setIsBizzyOpen] = useState(false);
   const [bizzyMode, setBizzyMode] = useState<'BUYER' | 'SELLER'>('BUYER');
+  const [isLogisticsOpen, setIsLogisticsOpen] = useState(false);
+  const [selectedShipmentOrderId, setSelectedShipmentOrderId] = useState<string | undefined>(undefined);
 
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -125,10 +130,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(telemetry),
       });
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
       const data = await res.json();
-      if (data.success) {
-        setUserProfile(data.userProfile);
-        setRankedItems(data.rankedItems);
+      if (data && data.success) {
+        if (data.userProfile) setUserProfile(data.userProfile);
+        if (data.rankedItems) setRankedItems(data.rankedItems);
 
         if (telemetry.action === 'LIKE') {
           showToast(`Affinity +20% for #${telemetry.category}`);
@@ -139,7 +147,17 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.error(err);
+      console.warn('Background telemetry update fallback:', err);
+      // Resilient local fallback calculation so user interaction never breaks
+      setUserProfile(prev => {
+        if (!prev) return prev;
+        const updated = updateUserAffinity(prev, telemetry);
+        setRankedItems(currentItems => {
+          const rawCatalog = currentItems.map(i => i.product);
+          return rankFeed(rawCatalog, updated);
+        });
+        return updated;
+      });
     }
   };
 
@@ -231,7 +249,7 @@ export default function App() {
   const handleOrderSuccess = (order: any) => {
     setIsCheckoutOpen(false);
     showToast(`🔒 Order #${order.orderId.slice(-6)} placed! Funds locked in BizTok Escrow Vault.`);
-    // Trigger positive recommendation affinity reward
+    // Trigger positive recommendation affinity reward safely
     if (checkoutProduct) {
       handleInteraction({
         productId: checkoutProduct.id,
@@ -239,8 +257,11 @@ export default function App() {
         watchTimeSeconds: 15,
         videoDurationSeconds: 15,
         action: 'BUY',
-      });
+      }).catch(err => console.warn('Order telemetry error caught:', err));
     }
+    // Launch live TikTok-style visual order tracker immediately!
+    setSelectedShipmentOrderId(order.orderId);
+    setIsLogisticsOpen(true);
   };
 
   // TokGift sent callback
@@ -352,6 +373,20 @@ export default function App() {
 
         {/* Right Status Rail: Escrow Vault & Merchant Tier Badges */}
         <div className="flex items-center gap-2">
+          {/* Live Logistics Hub Button */}
+          <button
+            onClick={() => {
+              setSelectedShipmentOrderId(undefined);
+              setIsLogisticsOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/80 transition shadow-sm shadow-cyan-500/20"
+            title="Inspect Multi-Tier Logistics API & 3-Way Digital Handshake"
+          >
+            <Truck className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden md:inline">Logistics API</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          </button>
+
           {/* Escrow Vault Button */}
           <button
             onClick={() => setIsEscrowDashboardOpen(true)}
@@ -555,6 +590,11 @@ export default function App() {
         <EscrowDashboardModal
           onClose={() => setIsEscrowDashboardOpen(false)}
           onOrderUpdated={() => fetchFeed()}
+          onOpenLogistics={orderId => {
+            setIsEscrowDashboardOpen(false);
+            setSelectedShipmentOrderId(orderId);
+            setIsLogisticsOpen(true);
+          }}
         />
       )}
 
@@ -579,6 +619,18 @@ export default function App() {
         }}
         initialMode={bizzyMode}
       />
+
+      {/* MODAL 5: Multi-Tier Logistics API Hub & Visual Tracker */}
+      {isLogisticsOpen && (
+        <LogisticsHubModal
+          selectedOrderId={selectedShipmentOrderId}
+          onClose={() => setIsLogisticsOpen(false)}
+          onShipmentDelivered={() => {
+            fetchFeed();
+            showToast('🎉 Handshake Complete! Escrow & Driver M-Pesa B2C Payout Dispatched.');
+          }}
+        />
+      )}
 
       {/* Footer */}
       <footer className="border-t border-zinc-900 bg-[#070709] px-6 py-4 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-2">

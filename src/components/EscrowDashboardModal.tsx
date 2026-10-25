@@ -24,9 +24,10 @@ import { EscrowOrder } from '../lib/escrowEngine';
 interface EscrowDashboardModalProps {
   onClose: () => void;
   onOrderUpdated?: () => void;
+  onOpenLogistics?: (orderId: string) => void;
 }
 
-export function EscrowDashboardModal({ onClose, onOrderUpdated }: EscrowDashboardModalProps) {
+export function EscrowDashboardModal({ onClose, onOrderUpdated, onOpenLogistics }: EscrowDashboardModalProps) {
   const [orders, setOrders] = useState<EscrowOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [trackingInput, setTrackingInput] = useState('');
@@ -327,6 +328,16 @@ export function EscrowDashboardModal({ onClose, onOrderUpdated }: EscrowDashboar
                       </span>
                       <span className="text-[10px] text-zinc-500 font-mono">Ref: {order.trackingNumber}</span>
                     </div>
+                  )}
+
+                  {onOpenLogistics && (
+                    <button
+                      onClick={() => onOpenLogistics(order.orderId)}
+                      className="mt-2 py-1.5 px-3 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                    >
+                      <Truck className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Live Logistics Map & 3-Way OTP</span>
+                    </button>
                   )}
                 </div>
               </div>
